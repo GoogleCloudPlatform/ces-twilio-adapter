@@ -1,0 +1,21 @@
+[project]
+name = "ces-twilio-adapter"
+version = "0.1.0"
+description = "Twilio adapter for Conversational agents."
+# Add other metadata like authors, license, etc. as needed
+
+[project.optional-dependencies]
+dev = [
+    "black",
+    "isort",
+    "flake8",
+]
+
+# --- Keep your existing tool configurations below ---
+[tool.black]
+line-length = 88
+target-version = ['py312']
+
+[tool.isort]
+profile = "black"
+line_length = 88

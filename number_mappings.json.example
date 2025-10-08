@@ -1,0 +1,8 @@
+{
+  "+18005551212": {
+    "deployment_id": "projects/your-gcp-project-id/locations/us-east1/apps/your-app-id/deployments/your-deployment-id"
+  },
+  "+18001234567": {
+    "deployment_id": "projects/your-gcp-project-id/locations/us-east1/apps/another-app-id/deployments/another-deployment-id"
+  }
+}

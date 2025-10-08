@@ -1,0 +1,32 @@
+#!/bin/bash
+
+# Copyright 2025 Google LLC
+
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+
+#     https://www.apache.org/licenses/LICENSE-2.0
+
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+PROJECT_ID=my-project-id
+SERVICE_NAME=ces-twilio-adapter
+SERVICE_ACCOUNT=ces-twilio-adapter@${PROJECT_ID}.iam.gserviceaccount.com
+TIMEOUT=60m
+CONCURRENCY=6
+LOCATION=us-central1
+PUBLIC_SERVER_HOSTNAME="ces-twilio-adapter-123456789012.us-central1.run.app"
+TWILIO_ACCOUNT_SID="my-twilio-account-sid"
+TWILIO_AUTH_TOKEN_PATH="projects/123456789012/secrets/ces-twilio-auth-token"
+
+# PHONE NUMBER MAPPING CONFIGURATION (see "Phone Number to Agent Mapping" section in README.md)
+# Choose ONE of the following methods.
+# 1. Firestore (recommended for production)
+# NUMBERS_COLLECTION_ID="ces-twilio-adapter-mappings"
+# 2. Local JSON file (for development/testing)
+NUMBERS_CONFIG_FILE="number_mappings.json"

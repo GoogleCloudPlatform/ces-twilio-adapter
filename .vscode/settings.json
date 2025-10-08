@@ -1,0 +1,10 @@
+{
+  // Point VS Code to the project's virtual environment
+  "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python",
+  // Ensure the flake8 extension is enabled and respects the project config
+  "python.linting.flake8Enabled": true,
+  // Explicitly tell the flake8 extension to use the pyproject.toml
+  "flake8.args": [
+    "--config=${workspaceFolder}/.flake8"
+  ]
+}
