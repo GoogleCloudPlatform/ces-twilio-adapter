@@ -25,3 +25,13 @@ wheels/
 
 # file with deployment values
 script/values.sh
+
+# Agent
+.agent
+
+# Environment variables
+.env
+.envrc
+
+# Number mappings
+number_mappings.json
