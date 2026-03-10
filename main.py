@@ -181,6 +181,7 @@ async def handle_incoming_call(request: Request):
         )
 
     to_number = form_params.get("To")
+    from_number = form_params.get("From")
     if not to_number:
         logger.error("'To' phone number not found in Twilio request.")
         raise HTTPException(
@@ -241,6 +242,9 @@ async def handle_incoming_call(request: Request):
     connect = Connect()
     stream = connect.stream(url=f"wss://{PUBLIC_SERVER_HOSTNAME}/media-stream")
     stream.parameter(name="session_id", value=session_id)
+    if from_number:
+        stream.parameter(name="caller_id", value=from_number)
+    stream.parameter(name="called_number", value=to_number)
     if deployment_id:
         stream.parameter(name="deployment_id", value=deployment_id)
     stream.parameter(name="virtual_agent_endpoint", value=virtual_agent_endpoint)
@@ -285,6 +289,8 @@ async def websocket_endpoint(websocket: WebSocket):
     va_ws = None
     session_id = None
     project_id = None
+    caller_id = None
+    called_number = None
     ratecv_state_to_va = None
     ratecv_state_to_twilio = None
     stream_sid = None
@@ -341,6 +347,8 @@ async def websocket_endpoint(websocket: WebSocket):
             nonlocal ratecv_state_to_va
             nonlocal session_id
             nonlocal project_id
+            nonlocal caller_id
+            nonlocal called_number
             nonlocal va_ws
             while True:
                 message = await websocket.receive_text()
@@ -354,6 +362,8 @@ async def websocket_endpoint(websocket: WebSocket):
                     if "start" in data and "streamSid" in data["start"]:
                         stream_sid = data["start"]["streamSid"]
                         session_id = data["start"]["customParameters"].get("session_id")
+                        caller_id = data["start"]["customParameters"].get("caller_id")
+                        called_number = data["start"]["customParameters"].get("called_number")
                         deployment_id = data["start"]["customParameters"].get(
                             "deployment_id"
                         )
@@ -423,7 +433,13 @@ async def websocket_endpoint(websocket: WebSocket):
                             raise
 
                         # Send initial message
-                        kickstart_message = {"realtimeInput": {"text": "Hi!"}}
+                        kickstart_text = "Hi!"
+                        if caller_id and called_number:
+                            kickstart_text = f"Hi! You are connected to a call from {caller_id} to {called_number}."
+                        elif called_number:
+                            kickstart_text = f"Hi! You are connected to a call to {called_number}."
+
+                        kickstart_message = {"realtimeInput": {"text": kickstart_text}}
                         logger.info(
                             f"Sending initial message to virtual agent: "
                             f"{kickstart_message}"
