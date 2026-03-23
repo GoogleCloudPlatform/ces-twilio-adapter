@@ -83,7 +83,6 @@ client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
 
 # Audio configs
 AGENT_AUDIO_SAMPLING_RATE = 16000
-AGENT_OUTPUT_AUDIO_SAMPLING_RATE = 24000
 AGENT_AUDIO_ENCODING = "LINEAR16"
 TWILIO_AUDIO_SAMPLING_RATE = 8000
 TWILIO_AUDIO_ENCODING = "MULAW"
@@ -150,7 +149,7 @@ def get_config_message(session_id: str, deployment_id: str | None = None) -> dic
             },
             "outputAudioConfig": {
                 "audioEncoding": AGENT_AUDIO_ENCODING,
-                "sampleRateHertz": AGENT_OUTPUT_AUDIO_SAMPLING_RATE,
+                "sampleRateHertz": AGENT_AUDIO_SAMPLING_RATE,
             },
         }
     }
@@ -289,10 +288,7 @@ async def websocket_endpoint(websocket: WebSocket):
     session_id = None
     project_id = None
     ratecv_state_to_va = None
-    ratecv_state_to_twilio = None
     stream_sid = None
-    inbound_audio_buffer = bytearray()
-    BUFFER_THRESHOLD = 800
     try:
         # --- Authentication ---
         # Determine the authentication method. The default is to use Application
@@ -447,30 +443,24 @@ async def websocket_endpoint(websocket: WebSocket):
                         audio_chunk = base64.b64decode(payload)
                         logger.debug(
                             f"Received {len(audio_chunk)} bytes of audio from Twilio. "
-                            f"Adding to buffer."
+                            f"Sending to VA."
                         )
 
-                        inbound_audio_buffer.extend(audio_chunk)
+                        linear_audio = audioop.ulaw2lin(audio_chunk, 2)
+                        resampled_linear_audio, ratecv_state_to_va = audioop.ratecv(
+                            linear_audio,
+                            2,
+                            1,
+                            TWILIO_AUDIO_SAMPLING_RATE,
+                            AGENT_AUDIO_SAMPLING_RATE,
+                            ratecv_state_to_va,
+                        )
 
-                        if len(inbound_audio_buffer) >= BUFFER_THRESHOLD:
-                            chunk_to_process = bytes(inbound_audio_buffer)
-                            inbound_audio_buffer.clear()
-
-                            linear_audio = audioop.ulaw2lin(chunk_to_process, 2)
-                            resampled_linear_audio, ratecv_state_to_va = audioop.ratecv(
-                                linear_audio,
-                                2,
-                                1,
-                                TWILIO_AUDIO_SAMPLING_RATE,
-                                AGENT_AUDIO_SAMPLING_RATE,
-                                ratecv_state_to_va,
-                            )
-
-                            base64_pcm_payload = base64.b64encode(
-                                resampled_linear_audio
-                            ).decode("utf-8")
-                            va_input = {"realtimeInput": {"audio": base64_pcm_payload}}
-                            await va_ws.send(json.dumps(va_input))
+                        base64_pcm_payload = base64.b64encode(
+                            resampled_linear_audio
+                        ).decode("utf-8")
+                        va_input = {"realtimeInput": {"audio": base64_pcm_payload}}
+                        await va_ws.send(json.dumps(va_input))
                     else:
                         logger.warning(f"Malformed media event from Twilio: {data}")
 
@@ -491,7 +481,6 @@ async def websocket_endpoint(websocket: WebSocket):
                     )
 
         async def forward_va_to_twilio():
-            nonlocal ratecv_state_to_twilio
             """Receives messages from the Virtual Agent and forwards them to Twilio."""
             await va_ws_ready.wait()
             logger.info(
@@ -511,10 +500,24 @@ async def websocket_endpoint(websocket: WebSocket):
                             )
                             continue
 
-                        # Downsample output to Twilio rate using high-fidelity soxr sinc interpolation
-                        x = np.frombuffer(va_audio, dtype=np.int16).astype(np.float32) / 32768.0
-                        y = soxr.resample(x, AGENT_OUTPUT_AUDIO_SAMPLING_RATE, TWILIO_AUDIO_SAMPLING_RATE, quality="HQ")
-                        pcm_8khz_data = (np.clip(y, -1.0, 1.0) * 32767).astype(np.int16).tobytes()
+                        # High-quality resampling using soxr for outbound audio
+                        audio_int16 = np.frombuffer(va_audio, dtype=np.int16)
+                        audio_float = audio_int16.astype(np.float32)
+
+                        # Inline resampling to eliminate the ~5ms asyncio.to_thread overhead.
+                        # Using HQ quality (~0.1ms latency per chunk) prevents distortion.
+                        audio_resampled = soxr.resample(
+                            audio_float,
+                            AGENT_AUDIO_SAMPLING_RATE,
+                            TWILIO_AUDIO_SAMPLING_RATE,
+                            quality="HQ",
+                        )
+
+                        # Clip to prevent wrap-around distortion
+                        audio_int16_resampled = np.clip(
+                            audio_resampled, -32768, 32767
+                        ).astype(np.int16)
+                        pcm_8khz_data = audio_int16_resampled.tobytes()
                         mulaw_audio = audioop.lin2ulaw(pcm_8khz_data, 2)
 
                         encoded_va_audio = base64.b64encode(mulaw_audio).decode("utf-8")
