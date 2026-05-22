@@ -422,15 +422,21 @@ async def websocket_endpoint(websocket: WebSocket):
                             # Re-raise to let the main loop handle connection closing
                             raise
 
-                        # Send initial message
-                        kickstart_message = {"realtimeInput": {"text": "Hi!"}}
+                        # Send initial welcome event (aligned with ces-genesys-adapter)
+                        kickstart_message = {
+                            "realtimeInput": {
+                                "event": {
+                                    "event": "session_start"
+                                }
+                            }
+                        }
                         logger.info(
-                            f"Sending initial message to virtual agent: "
+                            f"Sending initial welcome event to virtual agent: "
                             f"{kickstart_message}"
                         )
                         await va_ws.send(json.dumps(kickstart_message))
                         logger.info(
-                            f"-> Sent initial message to virtual agent: "
+                            f"-> Sent initial welcome event to virtual agent: "
                             f"{kickstart_message}"
                         )
                     else:
