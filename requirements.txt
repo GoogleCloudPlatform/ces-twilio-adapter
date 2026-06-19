@@ -20,6 +20,8 @@ websockets
 google-auth
 google-cloud-secret-manager
 google-cloud-firestore
-audioop-lts
 gunicorn
 python-multipart
+soxr
+numpy
+audioop-lts; python_version >= "3.13"

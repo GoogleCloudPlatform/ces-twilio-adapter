@@ -1,0 +1,9 @@
+.gcloudignore
+.git
+.gitignore
+
+# Include the standard gitignore
+#!include:.gitignore
+
+# But explicitly DO NOT ignore the number mappings file in gcloud
+!number_mappings.json

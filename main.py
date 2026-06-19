@@ -21,6 +21,8 @@ import os
 import uuid
 
 import google.auth
+import numpy as np
+import soxr
 import websockets
 from dotenv import load_dotenv
 from fastapi import (
@@ -286,7 +288,6 @@ async def websocket_endpoint(websocket: WebSocket):
     session_id = None
     project_id = None
     ratecv_state_to_va = None
-    ratecv_state_to_twilio = None
     stream_sid = None
     try:
         # --- Authentication ---
@@ -486,7 +487,6 @@ async def websocket_endpoint(websocket: WebSocket):
                     )
 
         async def forward_va_to_twilio():
-            nonlocal ratecv_state_to_twilio
             """Receives messages from the Virtual Agent and forwards them to Twilio."""
             await va_ws_ready.wait()
             logger.info(
@@ -506,14 +506,24 @@ async def websocket_endpoint(websocket: WebSocket):
                             )
                             continue
 
-                        pcm_8khz_data, ratecv_state_to_twilio = audioop.ratecv(
-                            va_audio,
-                            2,
-                            1,
+                        # High-quality resampling using soxr for outbound audio
+                        audio_int16 = np.frombuffer(va_audio, dtype=np.int16)
+                        audio_float = audio_int16.astype(np.float32)
+
+                        # Inline resampling to eliminate the ~5ms asyncio.to_thread overhead.
+                        # Using HQ quality (~0.1ms latency per chunk) prevents distortion.
+                        audio_resampled = soxr.resample(
+                            audio_float,
                             AGENT_AUDIO_SAMPLING_RATE,
                             TWILIO_AUDIO_SAMPLING_RATE,
-                            ratecv_state_to_twilio,
+                            quality="HQ",
                         )
+
+                        # Clip to prevent wrap-around distortion
+                        audio_int16_resampled = np.clip(
+                            audio_resampled, -32768, 32767
+                        ).astype(np.int16)
+                        pcm_8khz_data = audio_int16_resampled.tobytes()
                         mulaw_audio = audioop.lin2ulaw(pcm_8khz_data, 2)
 
                         encoded_va_audio = base64.b64encode(mulaw_audio).decode("utf-8")
