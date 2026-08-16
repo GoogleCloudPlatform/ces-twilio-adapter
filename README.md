@@ -1,4 +1,4 @@
-# CES Twilio Adapter
+NUMBERS_COLLECTION_ID (e.g., ces-twilio-adapter-mappings).+971 56 843 9487# CES Twilio Adapter
 
 This repository contains a telephony adapter to connect Twilio with Google Cloud's conversational AI agents. It acts as a bridge for both voice and messaging, supporting voice calls, SMS, and Rich Communication Services (RCS). The adapter receives incoming requests from Twilio, dynamically routes them to the correct AI agent based on the phone number or sender ID, and facilitates the conversation between the user and the agent.
 
