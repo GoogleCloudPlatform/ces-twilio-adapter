@@ -13,8 +13,6 @@
 # limitations under the License.
 
 import asyncio
-import audioop
-import base64
 import json
 import logging
 import os
@@ -80,10 +78,10 @@ validator = RequestValidator(TWILIO_AUTH_TOKEN)
 client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
 
 # Audio configs
-AGENT_AUDIO_SAMPLING_RATE = 16000
-AGENT_AUDIO_ENCODING = "LINEAR16"
-TWILIO_AUDIO_SAMPLING_RATE = 8000
-TWILIO_AUDIO_ENCODING = "MULAW"
+# Twilio natively sends and expects 8kHz MULAW (G.711u) audio.
+# Requesting 8000 Hz MULAW from CES enables native server-side resampling and G.712 filtering.
+AUDIO_SAMPLING_RATE = 8000
+AUDIO_ENCODING = "MULAW"
 
 # Initialize the app
 app = FastAPI()
@@ -142,12 +140,12 @@ def get_config_message(session_id: str, deployment_id: str | None = None) -> dic
         "config": {
             "session": session_id,
             "inputAudioConfig": {
-                "audioEncoding": AGENT_AUDIO_ENCODING,
-                "sampleRateHertz": AGENT_AUDIO_SAMPLING_RATE,
+                "audioEncoding": AUDIO_ENCODING,
+                "sampleRateHertz": AUDIO_SAMPLING_RATE,
             },
             "outputAudioConfig": {
-                "audioEncoding": AGENT_AUDIO_ENCODING,
-                "sampleRateHertz": AGENT_AUDIO_SAMPLING_RATE,
+                "audioEncoding": AUDIO_ENCODING,
+                "sampleRateHertz": AUDIO_SAMPLING_RATE,
             },
         }
     }
@@ -285,8 +283,6 @@ async def websocket_endpoint(websocket: WebSocket):
     va_ws = None
     session_id = None
     project_id = None
-    ratecv_state_to_va = None
-    ratecv_state_to_twilio = None
     stream_sid = None
     try:
         # --- Authentication ---
@@ -338,7 +334,6 @@ async def websocket_endpoint(websocket: WebSocket):
         async def forward_twilio_to_va():
             """Receives messages from Twilio and forwards them to the Virtual Agent."""
             nonlocal stream_sid
-            nonlocal ratecv_state_to_va
             nonlocal session_id
             nonlocal project_id
             nonlocal va_ws
@@ -445,26 +440,10 @@ async def websocket_endpoint(websocket: WebSocket):
                 elif event_type == "media":
                     if "media" in data and "payload" in data["media"]:
                         payload = data["media"]["payload"]
-                        audio_chunk = base64.b64decode(payload)
                         logger.debug(
-                            f"Received {len(audio_chunk)} bytes of audio from Twilio. "
-                            f"Sending to VA."
+                            "Received audio payload from Twilio. Sending to VA."
                         )
-
-                        linear_audio = audioop.ulaw2lin(audio_chunk, 2)
-                        resampled_linear_audio, ratecv_state_to_va = audioop.ratecv(
-                            linear_audio,
-                            2,
-                            1,
-                            TWILIO_AUDIO_SAMPLING_RATE,
-                            AGENT_AUDIO_SAMPLING_RATE,
-                            ratecv_state_to_va,
-                        )
-
-                        base64_pcm_payload = base64.b64encode(
-                            resampled_linear_audio
-                        ).decode("utf-8")
-                        va_input = {"realtimeInput": {"audio": base64_pcm_payload}}
+                        va_input = {"realtimeInput": {"audio": payload}}
                         await va_ws.send(json.dumps(va_input))
                     else:
                         logger.warning(f"Malformed media event from Twilio: {data}")
@@ -486,7 +465,6 @@ async def websocket_endpoint(websocket: WebSocket):
                     )
 
         async def forward_va_to_twilio():
-            nonlocal ratecv_state_to_twilio
             """Receives messages from the Virtual Agent and forwards them to Twilio."""
             await va_ws_ready.wait()
             logger.info(
@@ -498,7 +476,6 @@ async def websocket_endpoint(websocket: WebSocket):
                 va_data = json.loads(va_response)
                 if "sessionOutput" in va_data:
                     if "audio" in va_data["sessionOutput"]:
-                        va_audio = base64.b64decode(va_data["sessionOutput"]["audio"])
                         if not stream_sid:
                             logger.warning(
                                 "No stream_sid available yet. "
@@ -506,21 +483,13 @@ async def websocket_endpoint(websocket: WebSocket):
                             )
                             continue
 
-                        pcm_8khz_data, ratecv_state_to_twilio = audioop.ratecv(
-                            va_audio,
-                            2,
-                            1,
-                            AGENT_AUDIO_SAMPLING_RATE,
-                            TWILIO_AUDIO_SAMPLING_RATE,
-                            ratecv_state_to_twilio,
-                        )
-                        mulaw_audio = audioop.lin2ulaw(pcm_8khz_data, 2)
-
-                        encoded_va_audio = base64.b64encode(mulaw_audio).decode("utf-8")
                         response_media_message = {
                             "event": "media",
                             "streamSid": stream_sid,
-                            "media": {"payload": encoded_va_audio, "track": "outbound"},
+                            "media": {
+                                "payload": va_data["sessionOutput"]["audio"],
+                                "track": "outbound",
+                            },
                         }
                         await websocket.send_text(json.dumps(response_media_message))
                     else:
