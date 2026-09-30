@@ -20,6 +20,5 @@ websockets
 google-auth
 google-cloud-secret-manager
 google-cloud-firestore
-audioop-lts
 gunicorn
 python-multipart
