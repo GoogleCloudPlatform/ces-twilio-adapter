@@ -15,11 +15,14 @@
 """
 Handles fetching and caching secrets from Google Secret Manager.
 """
+import asyncio
 import json
 import logging
 import os
 from datetime import datetime, timedelta
 
+import google.auth
+from google.auth.transport import requests as google_auth_requests
 from google.cloud import secretmanager_v1 as secretmanager
 
 logger = logging.getLogger(__name__)
@@ -30,13 +33,16 @@ _token_cache = {
     "fetched_at": None,
 }
 _secret_manager_async_client = None
+_adc_credentials = None
 
 
 def flush_token_cache():
-    """Flushes the in-memory auth token cache."""
+    """Flushes the in-memory auth token cache (Secret Manager and ADC)."""
+    global _adc_credentials
     logger.info("Flushing auth token cache.")
     _token_cache["token"] = None
     _token_cache["fetched_at"] = None
+    _adc_credentials = None
 
 
 def get_secret_manager_async_client():
@@ -107,3 +113,35 @@ async def get_token_from_secret_manager_async():
         )
         # Re-raise to ensure the connection fails if we can't get a token.
         raise
+
+
+def _get_adc_token_sync() -> str:
+    """Returns a valid access token from Application Default Credentials."""
+    global _adc_credentials
+    if _adc_credentials is None:
+        _adc_credentials, _ = google.auth.default(
+            scopes=["https://www.googleapis.com/auth/cloud-platform"]
+        )
+    if not _adc_credentials.valid:
+        _adc_credentials.refresh(google_auth_requests.Request())
+    return _adc_credentials.token
+
+
+async def get_virtual_agent_token_async() -> str:
+    """
+    Returns an access token for calling the virtual agent.
+
+    Defaults to Application Default Credentials (ADC). If the
+    AUTH_TOKEN_SECRET_PATH environment variable is set, the token is fetched
+    from Secret Manager instead.
+    """
+    if os.getenv("AUTH_TOKEN_SECRET_PATH"):
+        logger.info(
+            "AUTH_TOKEN_SECRET_PATH is set. "
+            "Fetching OAuth2 token from Secret Manager as an override."
+        )
+        return await get_token_from_secret_manager_async()
+
+    logger.info("Using Application Default Credentials to get access token.")
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, _get_adc_token_sync)

@@ -20,7 +20,6 @@ import logging
 import os
 import uuid
 
-import google.auth
 import websockets
 from dotenv import load_dotenv
 from fastapi import (
@@ -32,7 +31,6 @@ from fastapi import (
     status,
 )
 from fastapi.responses import HTMLResponse
-from google.auth.transport import requests as google_auth_requests
 from starlette.websockets import WebSocketState
 from twilio.request_validator import RequestValidator
 from twilio.rest import Client
@@ -43,7 +41,7 @@ from websockets.protocol import State as WebsocketProtocolState
 
 from message_handler import process_incoming_message
 from phone_number_mapping import get_agent_for_phone_number_async
-from secrets_utils import flush_token_cache, get_token_from_secret_manager_async
+from secrets_utils import flush_token_cache, get_virtual_agent_token_async
 from twilio_utils import validate_twilio_signature
 
 # Configure logging
@@ -295,45 +293,15 @@ async def websocket_endpoint(websocket: WebSocket):
         # AUTH_TOKEN_SECRET_PATH environment variable to fetch a token from
         # Secret Manager. If this override is used, you are responsible for
         # ensuring the token in Secret Manager is valid and refreshed periodically.
-        auth_token_secret_path = os.getenv("AUTH_TOKEN_SECRET_PATH")
-        virtual_agent_token = ""
-
-        if auth_token_secret_path:
-            # Method 2: Explicit override via Secret Manager
-            logger.info(
-                "AUTH_TOKEN_SECRET_PATH is set. "
-                "Fetching OAuth2 token from Secret Manager as an override."
+        try:
+            virtual_agent_token = await get_virtual_agent_token_async()
+        except Exception as e:
+            logger.error(f"Failed to get virtual agent auth token: {e}", exc_info=True)
+            await websocket.close(
+                code=1011,
+                reason="Internal server error: could not retrieve auth token.",
             )
-            try:
-                virtual_agent_token = await get_token_from_secret_manager_async()
-            except Exception as e:
-                logger.error(
-                    f"Failed to get auth token from Secret Manager: {e}", exc_info=True
-                )
-                await websocket.close(
-                    code=1011,
-                    reason="Internal server error: could not retrieve auth token.",
-                )
-                return
-        else:
-            # Method 1: Default to Application Default Credentials (ADC)
-            logger.info("Using Application Default Credentials to get access token.")
-            try:
-                creds, _ = google.auth.default()
-                auth_req = google_auth_requests.Request()
-                creds.refresh(auth_req)  # Ensure the token is valid
-                virtual_agent_token = creds.token
-            except Exception as e:
-                logger.error(
-                    f"Failed to get access token from Application Default Credentials: "
-                    f"{e}",
-                    exc_info=True,
-                )
-                await websocket.close(
-                    code=1011,
-                    reason="Internal server error: could not authenticate with ADC.",
-                )
-                return
+            return
 
         async def forward_twilio_to_va():
             """Receives messages from Twilio and forwards them to the Virtual Agent."""

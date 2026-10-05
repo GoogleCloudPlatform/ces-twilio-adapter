@@ -28,7 +28,7 @@ from twilio.rest import Client
 from twilio.twiml.messaging_response import MessagingResponse
 
 from phone_number_mapping import get_agent_for_phone_number_async
-from secrets_utils import get_token_from_secret_manager_async
+from secrets_utils import get_virtual_agent_token_async
 from twilio_utils import validate_twilio_signature
 
 logger = logging.getLogger(__name__)
@@ -142,7 +142,7 @@ async def process_incoming_message(
         else:
             agent_id = agent_config["agent_id"]
             environment = agent_config.get("environment", "prod")
-            auth_token = await get_token_from_secret_manager_async()
+            auth_token = await get_virtual_agent_token_async()
 
             async def forward_and_reply():
                 """Forwards message to VA and sends reply back to user."""
